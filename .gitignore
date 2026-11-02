@@ -1,0 +1,18 @@
+﻿# environment
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# data and artifacts (large / reproducible)
+data/raw/*
+!data/raw/.gitkeep
+*.duckdb
+*.duckdb.wal
+models/*
+!models/.gitkeep
+
+# OS / editor
+.DS_Store
+.vscode/
