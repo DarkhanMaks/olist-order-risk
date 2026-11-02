@@ -44,7 +44,7 @@ Example request to `POST /score`:
  "main_payment_type": "credit_card"}
 ```
 
-Response: `{"risk_score": 0.80, "flagged": true, "threshold": 0.2274}`. The same order delivered 15 days early scores 0.05.
+Response: `{"risk_score": 0.837, "flagged": true, "threshold": 0.2274}`. With `shipping_days: 10` and `delivery_delay_days: -15` (15 days early) the same order is not flagged.
 
 ## Results
 
