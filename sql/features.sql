@@ -12,7 +12,7 @@ WITH base AS (  -- delivered orders with a valid delivery date
       AND order_delivered_customer_date >= order_purchase_timestamp
 ),
 reviews AS (  -- one review per order: keep the latest one
-    SELECT order_id, review_score, review_creation_date
+    SELECT order_id, review_score, review_answer_timestamp
     FROM (
         SELECT *,
                ROW_NUMBER() OVER (PARTITION BY order_id
@@ -41,12 +41,12 @@ cur AS (  -- (order, seller) pairs we need a history for
     FROM order_items i
     JOIN base b USING (order_id)
 ),
-past AS (  -- every labelled (seller, order) with the time its review appeared
-    SELECT DISTINCT i.seller_id, i.order_id, r.review_score, r.review_creation_date
+past AS (  -- every labelled (seller, order) with the time the customer answered the survey
+    SELECT DISTINCT i.seller_id, i.order_id, r.review_score, r.review_answer_timestamp
     FROM order_items i
     JOIN reviews r USING (order_id)
 ),
-seller_hist AS (  -- no leakage: only reviews created BEFORE this order was delivered
+seller_hist AS (  -- no leakage: only reviews ANSWERED before this order was delivered
     SELECT cur.order_id, cur.seller_id,
            count(past.order_id)                              AS prev_reviews,
            count(*) FILTER (WHERE past.review_score <= 2)    AS prev_bad
@@ -54,7 +54,7 @@ seller_hist AS (  -- no leakage: only reviews created BEFORE this order was deli
     LEFT JOIN past
            ON past.seller_id = cur.seller_id
           AND past.order_id <> cur.order_id
-          AND past.review_creation_date < cur.delivered_at
+          AND past.review_answer_timestamp < cur.delivered_at
     GROUP BY cur.order_id, cur.seller_id
 ),
 seller_agg AS (  -- an order can have several sellers -> pool their histories
