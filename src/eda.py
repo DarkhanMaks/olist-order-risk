@@ -70,26 +70,9 @@ def main():
     fig.tight_layout()
     fig.savefig(REPORTS / "eda_shipping_freight.png", dpi=150)
 
-    # 3) seller track record (only sellers with >= 30 earlier reviews)
-    s = df[df["seller_prev_reviews"] >= 30].copy()
-    s["seller_bucket"] = pd.cut(s["seller_prev_bad_rate"], [-0.001, 0.05, 0.10, 0.15, 0.20, 1.0],
-                                labels=["<=5%", "5-10%", "10-15%", "15-20%", ">20%"])
-    t4 = rate_by(s, "seller_bucket")
-    print("\nbad-review rate by seller's earlier bad-review rate (>=30 earlier reviews)\n",
-          t4.round(3).to_string(index=False))
-
-    fig, ax = plt.subplots(figsize=(7, 4))
-    ax.bar(t4["seller_bucket"].astype(str), t4["rate"], color=BAR, width=0.6)
-    for x, (r, n) in enumerate(zip(t4["rate"], t4["n"])):
-        ax.text(x, r, f"{r:.0%}\nn={n:,}", ha="center", va="bottom", fontsize=8)
-    style(ax, "A seller's past reviews predict this order's review", "seller's earlier bad-review rate", base)
-    ax.set_ylim(0, t4["rate"].max() * 1.25)
-    fig.tight_layout()
-    fig.savefig(REPORTS / "eda_seller.png", dpi=150)
-
     # how much do the features overlap? (late orders are also slow orders)
     print("\ncorrelation with bad_review (Pearson, rough):")
-    cols = ["delivery_delay_days", "shipping_days", "freight_ratio", "total_freight", "total_price", "seller_prev_bad_rate"]
+    cols = ["delivery_delay_days", "shipping_days", "freight_ratio"]
     print(df[cols + ["bad_review"]].corr()["bad_review"].drop("bad_review").round(3).to_string())
     print("\nsaved plots to", REPORTS)
 

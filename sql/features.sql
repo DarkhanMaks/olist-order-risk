@@ -2,7 +2,7 @@
 -- is delivered ("as-of" time = delivered_at). Target: bad_review = review_score <= 2.
 CREATE OR REPLACE TABLE features AS
 WITH base AS (  -- delivered orders with a valid delivery date
-    SELECT order_id, customer_id,
+    SELECT order_id,
            order_purchase_timestamp       AS purchase_at,
            order_delivered_customer_date  AS delivered_at,
            order_estimated_delivery_date  AS estimated_at
@@ -23,22 +23,10 @@ reviews AS (  -- one review per order: keep the latest one
 ),
 items AS (  -- order_items has one row per item -> aggregate to one row per order
     SELECT order_id,
-           count(*)           AS n_items,
-           sum(price)         AS total_price,
-           sum(freight_value) AS total_freight
+           count(*) AS n_items,
+           sum(freight_value) / NULLIF(sum(price), 0) AS freight_ratio
     FROM order_items
     GROUP BY order_id
-),
-pay_ranked AS (
-    SELECT order_id, payment_type,
-           ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY payment_value DESC) AS rn,
-           MAX(payment_installments) OVER (PARTITION BY order_id)               AS max_installments
-    FROM order_payments
-),
-pay AS (  -- main payment type = the one with the largest value
-    SELECT order_id, payment_type AS main_payment_type, max_installments
-    FROM pay_ranked
-    WHERE rn = 1
 ),
 cust AS (  -- how many orders this person placed BEFORE this one (current row excluded)
     SELECT o.order_id,
@@ -83,15 +71,9 @@ SELECT
     date_diff('second', b.purchase_at,  b.estimated_at) / 86400.0 AS estimated_days,
     date_diff('second', b.purchase_at,  b.delivered_at) / 86400.0 AS shipping_days,
     date_diff('second', b.estimated_at, b.delivered_at) / 86400.0 AS delivery_delay_days,
-    (b.delivered_at > b.estimated_at)::INT                        AS is_late,
     -- order content and cost
     i.n_items,
-    i.total_price,
-    i.total_freight,
-    i.total_freight / NULLIF(i.total_price, 0)                    AS freight_ratio,
-    -- payment
-    p.main_payment_type,
-    p.max_installments,
+    i.freight_ratio,
     -- history (point-in-time)
     cu.customer_prev_orders,
     sa.seller_prev_reviews,
@@ -99,8 +81,7 @@ SELECT
     -- target
     (r.review_score <= 2)::INT AS bad_review
 FROM base b
-JOIN reviews r      ON r.order_id  = b.order_id
-JOIN items i        ON i.order_id  = b.order_id
-JOIN cust cu        ON cu.order_id = b.order_id
-LEFT JOIN pay p     ON p.order_id  = b.order_id
+JOIN reviews r  ON r.order_id  = b.order_id
+JOIN items i    ON i.order_id  = b.order_id
+JOIN cust cu    ON cu.order_id = b.order_id
 LEFT JOIN seller_agg sa ON sa.order_id = b.order_id;

@@ -1,25 +1,27 @@
 import pytest
-from fastapi.testclient import TestClient
 
-from src.api import app
-from src.predict import MODEL_PATH, build_row, score_order
+from src.config import MODEL_PATH
 
-needs_model = pytest.mark.skipif(not MODEL_PATH.exists(), reason="run `python -m src.train` first")
+if not MODEL_PATH.exists():
+    pytest.skip("run `python -m src.train` first", allow_module_level=True)
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from src.api import app  # noqa: E402
+from src.predict import build_row, score_order  # noqa: E402
 
 ORDER = {"estimated_days": 25.0, "shipping_days": 10.0, "delivery_delay_days": -15.0,
-         "n_items": 1, "total_price": 100.0, "total_freight": 20.0,
-         "max_installments": 1, "customer_prev_orders": 0, "seller_prev_reviews": 50,
-         "seller_prev_bad_rate": 0.1, "main_payment_type": "credit_card"}
+         "n_items": 1, "freight_ratio": 0.2, "customer_prev_orders": 0,
+         "seller_prev_reviews": 50, "seller_prev_bad_rate": 0.1}
 
 
-@needs_model
-def test_build_row_derives_features():
-    row = build_row(ORDER)
-    assert row.loc[0, "is_late"] == 0  # delay < 0 -> not late
-    assert row.loc[0, "freight_ratio"] == pytest.approx(0.2)
+def test_build_row_keeps_column_order_and_missing_values():
+    row = build_row({"estimated_days": 25.0})  # all other features missing
+    assert row.shape == (1, 8)
+    assert row.loc[0, "estimated_days"] == 25.0
+    assert row["seller_prev_bad_rate"].isna().all()
 
 
-@needs_model
 def test_late_order_is_riskier_than_early_order():
     late = {**ORDER, "shipping_days": 40.0, "delivery_delay_days": 15.0}
     early = score_order(ORDER)["risk_score"]
@@ -27,7 +29,6 @@ def test_late_order_is_riskier_than_early_order():
     assert score_order(late)["risk_score"] > early
 
 
-@needs_model
 def test_score_endpoint():
     client = TestClient(app)
     ok = client.post("/score", json=ORDER)
