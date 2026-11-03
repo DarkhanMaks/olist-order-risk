@@ -36,11 +36,13 @@ def main():
     df = duckdb.connect(str(DB_PATH), read_only=True).execute("SELECT * FROM features").df()
     df[FEATURES] = df[FEATURES].astype("float64")  # DuckDB gives nullable Int64 (pd.NA); sklearn wants NaN
 
-    # --- time-based split: train on the past, test on the future ---------------------
-    cut = df["purchase_at"].quantile(0.8)
-    train, test = df[df["purchase_at"] <= cut], df[df["purchase_at"] > cut]
-    print(f"train: {len(train):,} orders up to {cut:%Y-%m-%d}, bad rate {train[TARGET].mean():.3f}")
-    print(f"test : {len(test):,} orders after that,    bad rate {test[TARGET].mean():.3f}")
+    # --- time-based split: train (oldest 60%) -> validation (next 20%) -> test (newest 20%) ---
+    cut_val, cut_test = df["purchase_at"].quantile([0.6, 0.8])
+    train = df[df["purchase_at"] <= cut_val]
+    val = df[(df["purchase_at"] > cut_val) & (df["purchase_at"] <= cut_test)]
+    test = df[df["purchase_at"] > cut_test]
+    for name, part in [("train", train), ("val  ", val), ("test ", test)]:
+        print(f"{name}: {len(part):,} orders, bad rate {part[TARGET].mean():.3f}")
     X_tr, y_tr, X_te, y_te = train[FEATURES], train[TARGET], test[FEATURES], test[TARGET]
 
     # --- models -----------------------------------------------------------------------
@@ -60,14 +62,14 @@ def main():
     }).T
     print("\nTEST metrics\n", results.round(3).to_string())
 
-    # --- threshold: flag the top 10% highest scores (a capacity rule, uses no labels) --
-    thr = float(np.quantile(p_hgb, 1 - FLAG_SHARE))
+    # --- threshold: the score that flags the top 10% of VALIDATION orders, applied once to test ---
+    thr = float(np.quantile(hgb.predict_proba(val[FEATURES])[:, 1], 1 - FLAG_SHARE))
     pred = (p_hgb >= thr).astype(int)
     tn, fp, fn, tp = confusion_matrix(y_te, pred).ravel()
     cm = pd.DataFrame([[tn, fp], [fn, tp]], index=["actual good", "actual bad"],
                       columns=["flagged: no", "flagged: yes"])
     precision, recall = tp / (tp + fp), tp / (tp + fn)
-    print(f"\nthreshold {thr:.3f} = score of the top {FLAG_SHARE:.0%} of test orders")
+    print(f"\nthreshold {thr:.3f} = score of the top {FLAG_SHARE:.0%} of validation orders")
     print("confusion matrix on TEST\n", cm.to_string())
     print(f"flagged {pred.mean():.1%} of orders | precision {precision:.2f} | recall {recall:.2f}")
 
@@ -89,7 +91,8 @@ def main():
 
     # --- save the model and threshold so predict.py needs nothing else ----------------
     joblib.dump({"model": hgb, "threshold": thr, "features": FEATURES}, MODEL_PATH)
-    metrics = {"split_date": str(cut.date()), "flag_share": FLAG_SHARE, "threshold": thr,
+    metrics = {"val_starts": str(cut_val.date()), "test_starts": str(cut_test.date()),
+               "flag_share": FLAG_SHARE, "threshold": thr,
                "precision": precision, "recall": recall, "test": results.to_dict("index")}
     (ROOT / "reports" / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
     print("\nsaved models/model.joblib, reports/metrics.json, reports/permutation_importance.png")
